@@ -586,7 +586,12 @@ Void TEncSlice::precompressSlice( TComPic* pcPic )
     setUpLambda(pcSlice, m_pdRdPicLambda[uiQpIdx], m_piRdPicQp    [uiQpIdx]);
 
     // try compress
+#ifdef CTU_statics
+	int dd0 = 0, dd1 = 0, dd2 = 0, dd3 = 0, dd4 = 0;
+	compressSlice(pcPic, true, m_pcCfg->getFastDeltaQp(), dd0, dd1, dd2, dd3, dd4);
+#else
     compressSlice   ( pcPic, true, m_pcCfg->getFastDeltaQp());
+#endif
 
     UInt64 uiPicDist        = m_uiPicDist; // Distortion, as calculated by compressSlice.
     // NOTE: This distortion is the chroma-weighted SSE distortion for the slice.
@@ -649,7 +654,11 @@ Void TEncSlice::calCostSliceI(TComPic* pcPic) // TODO: this only analyses the fi
 
 /** \param pcPic   picture class
  */
+#ifdef CTU_statics
+Void TEncSlice::compressSlice(TComPic* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP, int &d0, int &d1, int &d2, int &d3, int &blockAmount)
+#else
 Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP )
+#endif
 {
   // if bCompressEntireSlice is true, then the entire slice (not slice segment) is compressed,
   //   effectively disabling the slice-segment-mode.
@@ -742,7 +751,6 @@ Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, 
   }
 
   // for every CTU in the slice segment (may terminate sooner if there is a byte limit on the slice-segment)
-
   for( UInt ctuTsAddr = startCtuTsAddr; ctuTsAddr < boundingCtuTsAddr; ++ctuTsAddr )
   {
     const UInt ctuRsAddr = pcPic->getPicSym()->getCtuTsToRsAddrMap(ctuTsAddr);
@@ -830,9 +838,12 @@ Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, 
     }
 
     // run CTU trial encoder
-    m_pcCuEncoder->compressCtu( pCtu );
-
-
+#ifdef CTU_statics
+	m_pcCuEncoder->compressCtu(pCtu, d0, d1, d2, d3);
+#else
+	m_pcCuEncoder->compressCtu(pCtu);
+#endif 
+    
     // All CTU decisions have now been made. Restore entropy coder to an initial stage, ready to make a true encode,
     // which will result in the state of the contexts being correct. It will also count up the number of bits coded,
     // which is used if there is a limit of the number of bytes per slice-segment.
@@ -845,7 +856,6 @@ Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, 
 
     // encode CTU and calculate the true bit counters.
     m_pcCuEncoder->encodeCtu( pCtu );
-
 
     pRDSbacCoder->setBinCountingEnableFlag( false );
 
@@ -881,7 +891,6 @@ Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, 
       m_entropyCodingSyncContextState.loadContexts(m_pppcRDSbacCoder[0][CI_CURR_BEST]);
     }
 
-
     if ( m_pcCfg->getUseRateCtrl() )
     {
       Int actualQP        = g_RCInvalidQPValue;
@@ -914,7 +923,11 @@ Void TEncSlice::compressSlice( TComPic* pcPic, const Bool bCompressEntireSlice, 
     m_dPicRdCost     += pCtu->getTotalCost();
     m_uiPicDist      += pCtu->getTotalDistortion();
   }
-
+#ifdef CTU_statics
+  int width = pcSlice->getPic()->getPicYuvOrg()->getWidth(COMPONENT_Y);
+  int height = pcSlice->getPic()->getPicYuvOrg()->getHeight(COMPONENT_Y);
+  blockAmount += (width * height) >> 4;
+#endif
   // store context state at the end of this slice-segment, in case the next slice is a dependent slice and continues using the CABAC contexts.
   if( pcSlice->getPPS()->getDependentSliceSegmentsEnabledFlag() )
   {

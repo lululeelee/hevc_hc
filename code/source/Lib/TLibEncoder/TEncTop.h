@@ -44,6 +44,7 @@
 #include "TLibCommon/TComTrQuant.h"
 #include "TLibCommon/TComLoopFilter.h"
 #include "TLibCommon/AccessUnit.h"
+#include "TLibCommon/CommonDef.h"
 
 #include "TLibVideoIO/TVideoIOYuv.h"
 
@@ -57,6 +58,10 @@
 #include "TEncSampleAdaptiveOffset.h"
 #include "TEncPreanalyzer.h"
 #include "TEncRateCtrl.h"
+
+#ifdef FAST_CU_50
+#define CALCULATE
+#endif
 //! \ingroup TLibEncoder
 //! \{
 

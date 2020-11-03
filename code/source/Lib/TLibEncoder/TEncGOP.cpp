@@ -1509,6 +1509,10 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
     const Int numSubstreams        = numSubstreamRows * numSubstreamsColumns;
     std::vector<TComOutputBitstream> substreamsOut(numSubstreams);
 
+#ifdef CTU_statics
+	int d0 = 0, d1 = 0, d2 = 0, d3 = 0;
+	int blockAmount = 0;
+#endif
     // now compress (trial encode) the various slice segments (slices, and dependent slices)
     {
       const UInt numberOfCtusInFrame=pcPic->getPicSym()->getNumberOfCtusInFrame();
@@ -1518,7 +1522,11 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
       for(UInt nextCtuTsAddr = 0; nextCtuTsAddr < numberOfCtusInFrame; )
       {
         m_pcSliceEncoder->precompressSlice( pcPic );
+#ifdef CTU_statics
+		m_pcSliceEncoder->compressSlice(pcPic, false, false, d0, d1, d2, d3, blockAmount);
+#else
         m_pcSliceEncoder->compressSlice   ( pcPic, false, false );
+#endif
 
         const UInt curSliceSegmentEnd = pcSlice->getSliceSegmentCurEndCtuTsAddr();
         if (curSliceSegmentEnd < numberOfCtusInFrame)
@@ -1551,7 +1559,15 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
         nextCtuTsAddr = curSliceSegmentEnd;
       }
     }
-
+#ifdef CTU_statics
+	cout << d0 << "\t" << d1 << "\t" << d2 << "\t" << d3 << "\t" << blockAmount;
+	/*
+	cout << "depth 0 : " << (double)((float)d0 / (float)blockAmount) << endl;
+	cout << "depth 1 : " << (double)((float)d1 / (float)blockAmount) << endl;
+	cout << "depth 2 : " << (double)((float)d2 / (float)blockAmount) << endl;
+	cout << "depth 3 : " << (double)((float)d3 / (float)blockAmount) << endl;
+	*/
+#endif
     duData.clear();
     pcSlice = pcPic->getSlice(0);
 
@@ -1564,7 +1580,7 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
     //-- Loop filter
     Bool bLFCrossTileBoundary = pcSlice->getPPS()->getLoopFilterAcrossTilesEnabledFlag();
     m_pcLoopFilter->setCfg(bLFCrossTileBoundary);
-    if ( m_pcCfg->getDeblockingFilterMetric() )
+    if ( m_pcCfg->getDeblockingFilterMetric())
     {
       applyDeblockingFilterMetric(pcPic, uiNumSliceSegments);
     }
@@ -1608,6 +1624,9 @@ Void TEncGOP::compressGOP( Int iPOCLast, Int iNumPicRcvd, TComList<TComPic*>& rc
       m_pcEncTop->getRDGoOnSbacCoder()->setBitstream(&tempBitCounter);
       m_pcSAO->initRDOCabacCoder(m_pcEncTop->getRDGoOnSbacCoder(), pcSlice);
       m_pcSAO->SAOProcess(pcPic, sliceEnabled, pcPic->getSlice(0)->getLambdas(), m_pcCfg->getTestSAODisableAtPictureLevel(), m_pcCfg->getSaoEncodingRate(), m_pcCfg->getSaoEncodingRateChroma(), m_pcCfg->getSaoCtuBoundary());
+
+
+
       m_pcSAO->PCMLFDisableProcess(pcPic);
       m_pcEncTop->getRDGoOnSbacCoder()->setBitstream(NULL);
 
@@ -1827,7 +1846,7 @@ Void TEncGOP::printOutSummary(UInt uiNumAllPicCoded, Bool isField, const Bool pr
   m_gcAnalyzeP.setFrmRate( m_pcCfg->getFrameRate()*rateMultiplier );
   m_gcAnalyzeB.setFrmRate( m_pcCfg->getFrameRate()*rateMultiplier );
   const ChromaFormat chFmt = m_pcCfg->getChromaFormatIdc();
-
+#ifndef NOT_PRINT_INFO
   //-- all
   printf( "\n\nSUMMARY --------------------------------------------------------\n" );
   m_gcAnalyzeAll.printOut('a', chFmt, printMSEBasedSNR, printSequenceMSE, bitDepths);
@@ -1870,6 +1889,7 @@ Void TEncGOP::printOutSummary(UInt uiNumAllPicCoded, Bool isField, const Bool pr
   }
 
   printf("\nRVM: %.3lf\n" , xCalculateRVM());
+#endif
 }
 
 Void TEncGOP::preLoopFilterPicAll( TComPic* pcPic, UInt64& ruiDist )
@@ -2141,7 +2161,7 @@ Void TEncGOP::xCalculateAddPSNR( TComPic* pcPic, TComPicYuv* pcPicD, const Acces
   {
     c += 32;
   }
-
+#ifndef NOT_PRINT_INFO
 #if ADAPTIVE_QP_SELECTION
   printf("POC %4d TId: %1d ( %c-SLICE, nQP %d QP %d ) %10d bits",
          pcSlice->getPOC(),
@@ -2177,7 +2197,7 @@ Void TEncGOP::xCalculateAddPSNR( TComPic* pcPic, TComPicYuv* pcPicD, const Acces
     }
     printf("]");
   }
-
+#endif
   cscd.destroy();
 }
 
@@ -2528,7 +2548,6 @@ Void TEncGOP::applyDeblockingFilterMetric( TComPic* pcPic, UInt uiNumSlices )
 
   memset(colSAD, 0, noCol*sizeof(UInt64));
   memset(rowSAD, 0, noRows*sizeof(UInt64));
-
   if (maxTBsize > minBlockArtSize)
   {
     // Analyze vertical artifact edges
@@ -2543,6 +2562,7 @@ Void TEncGOP::applyDeblockingFilterMetric( TComPic* pcPic, UInt uiNumSlices )
         q1 = Rec[c+1];
         q2 = Rec[c+2];
         a = ((abs(p2-(p1<<1)+p0)+abs(q0-(q1<<1)+q2))<<1);
+
         if ( thr1 < a && a < thr2)
         {
           colSAD[colIdx] += abs(p0 - q0);

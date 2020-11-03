@@ -40,11 +40,20 @@
 #include "TEncCu.h"
 #include "TEncAnalyze.h"
 #include "TLibCommon/Debug.h"
+#include "TLibEncoder/TEncTop.h"
 
 #include <cmath>
 #include <algorithm>
 using namespace std;
 
+int count;
+int number = 0;
+fstream outS("SAD_spilt_or_not.txt", ios::out | ios::app);
+
+//#define FAST_CU_DECISION
+//#define PRINT_CTU
+//#define SADVALUE
+//#define LEFT_BLOCK_PELS
 
 //! \ingroup TLibEncoder
 //! \{
@@ -226,18 +235,161 @@ Void TEncCu::init( TEncTop* pcEncTop )
 /** 
  \param  pCtu pointer of CU data class
  */
-Void TEncCu::compressCtu( TComDataCU* pCtu )
+int hitCount = 0;
+int allCount = 0;
+#ifdef CTU_statics
+Void TEncCu::compressCtu( TComDataCU* pCtu, int &d0, int &d1, int &d2, int &d3 )
+#else
+Void TEncCu::compressCtu(TComDataCU* pCtu)
+#endif
 {
   // initialize CU data
   m_ppcBestCU[0]->initCtu( pCtu->getPic(), pCtu->getCtuRsAddr() );
   m_ppcTempCU[0]->initCtu( pCtu->getPic(), pCtu->getCtuRsAddr() );
 
+  TComDataCU* pcCtuAbove     = pCtu->getCtuAbove();
+  TComDataCU* pcCtuLeft      = pCtu->getCtuLeft();
+  TComDataCU* pcCtuAboveLeft = pCtu->getCtuAboveLeft();
+  TComDataCU* pcCtuRefL0     = pCtu->getCUColocated(RefPicList(0));
+
+  //fstream get_ref("ref.txt", ios::out | ios::app);
+  //get_ref << pcCtuRefL0->m_pcPic->m_uiCurrSliceIdx << endl;
+  //get_ref << pcCtuRefL0 << endl;
+  //get_ref.close();
+
+  // ?????????
+  int CtuAboveDepth     = (pcCtuAbove != NULL) ? 0 : 1;
+  int CtuLeftDepth      = (pcCtuLeft != NULL) ? 0 : 1;
+  int CtuAboveLeftDepth = (pcCtuAboveLeft != NULL) ? 0 : 1;
+  int CURefL0Depth      = (pcCtuRefL0 != NULL) ? 0 : 1;
+  
+  int Dmin = 0, Dmax = 0;
+  int DminL0 = 0, DmaxL0 = 0;
+  int DminL1 = 0, DmaxL1 = 0;
+  int tmpDepth;
+
+  // getDepth 是將 64x64 切成 16x16 個，查看每一個深度嗎?
+  if (pcCtuAbove != NULL)
+  {
+	  for (int i = 0; i<256; i++)
+	  {
+		  tmpDepth = pcCtuAbove->getDepth(i);
+		  if (tmpDepth > CtuAboveDepth)
+		  {
+			  CtuAboveDepth = tmpDepth;
+		  }
+	  }
+  }
+
+  if (pcCtuLeft != NULL)
+  {
+	  for (int i = 0; i<256; i++)
+	  {
+		  tmpDepth = pcCtuLeft->getDepth(i);
+		  if (tmpDepth > CtuLeftDepth)
+		  {
+			  CtuLeftDepth = tmpDepth;
+		  }
+	  }
+  }
+
+  if (pcCtuAboveLeft != NULL)
+  {
+	  for (int i = 0; i<256; i++)
+	  {
+		  tmpDepth = pcCtuAboveLeft->getDepth(i);
+		  if (tmpDepth > CtuAboveLeftDepth)
+		  {
+			  CtuAboveLeftDepth = tmpDepth;
+		  }
+	  }
+  }
+
+  if (pcCtuRefL0 != NULL)
+  {
+	  for (int i = 0; i<256; i++)
+	  {
+		  tmpDepth = pcCtuRefL0->getDepth(i);
+		  if (tmpDepth > CURefL0Depth)
+		  {
+			  CURefL0Depth = tmpDepth;
+		  }
+	  }
+  }
+  
+  double DepthPred = 0.3 * CtuAboveDepth + 0.3 * CtuLeftDepth + 0.3  * CURefL0Depth + 0.1  * CtuAboveLeftDepth;
+
+  if (DepthPred == 0) { Dmin = 0, Dmax = 1; }
+  else if (DepthPred < 0.5) { Dmin = 0, Dmax = 1; }
+  else if (DepthPred < 1.3) { Dmin = 0, Dmax = 2; }
+  else if (DepthPred < 1.7) { Dmin = 1, Dmax = 2; }
+  else if (DepthPred < 2.5) { Dmin = 1, Dmax = 3; }
+  else { Dmin = 2, Dmax = 3; }
+
+  //  Add the code here
+  int  N_LCU = pCtu->getCtuRsAddr();
+
+
+  fstream outD("Dmin_Dmax.txt", ios::out | ios::app);
+  outD << N_LCU << endl;
+  outD << Dmin << " " << Dmax << endl;
+  outD.close();
+
+
   // analysis of CU
   DEBUG_STRING_NEW(sDebug)
+  
+  outS << N_LCU << " ";
+  xCompressCU( m_ppcBestCU[0], m_ppcTempCU[0], Dmin, Dmax, 0 DEBUG_STRING_PASS_INTO(sDebug) );
+  outS << endl;
 
-  xCompressCU( m_ppcBestCU[0], m_ppcTempCU[0], 0 DEBUG_STRING_PASS_INTO(sDebug) );
   DEBUG_STRING_OUTPUT(std::cout, sDebug)
 
+
+  UInt print8CUOrder[64] = { 0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 148, 152, 156, 160, 164, 168, 172, 176, 180, 184, 188, 192, 196, 200, 204, 208, 212, 216, 220, 224, 228, 232, 236, 240, 244, 248, 252 };
+
+  fstream outPU("PU_PartitonSize.txt", ios::out | ios::app);
+  outPU << "the LCU's partitionSize information ,NO." << N_LCU << ":" << endl;
+  UInt PU_PartitionSize[256] = { 0 };
+  for (UInt i = 0; i < 256; i++)
+  {
+	  PU_PartitionSize[i] = m_ppcBestCU[0]->getPartitionSize(i);
+  }
+  for (UInt i = 0; i < 64; i++)
+  {
+	  outPU << PU_PartitionSize[print8CUOrder[i]];
+	  if ((i + 1) % 16 == 0 && (i + 1) != 64){
+		  outPU << endl;
+	  }
+	  if ((i + 1) == 64)
+	  {
+		  outPU << endl;
+	  }
+  }
+  outPU.close();
+
+  std::string s = std::to_string(N_LCU);
+  std::string num = std::to_string(number);
+
+  if (N_LCU == 27)
+	  number++;
+
+  UInt PU_Depth[256] = { 0 };
+  fstream outCUDepth("./cu_depth/CUDepth_"+num+"_"+s+".txt", ios::out | ios::app);
+  for (UInt i = 0; i < 256; i++)
+  {
+	  PU_Depth[i] = m_ppcBestCU[0]->getDepth(i);
+  }
+  for (UInt i = 0; i < 64; i++)
+  {
+	  outCUDepth << PU_Depth[print8CUOrder[i]] << endl;
+	  if ((i + 1) == 64)
+	  {
+		  outCUDepth << endl;
+	  }
+  }
+  outCUDepth.close();
+  //
 #if ADAPTIVE_QP_SELECTION
   if( m_pcEncCfg->getUseAdaptQpSelect() )
   {
@@ -248,6 +400,183 @@ Void TEncCu::compressCtu( TComDataCU* pCtu )
   }
 #endif
 }
+
+Pel pelAvgVer(Pel* piAddr, int width)
+{
+	Pel p = 0;
+	Pel* piTmp = piAddr;
+	for (int j = 0; j < (width >> 3); j++)
+	{
+		p += *piTmp;
+		piTmp += 1;
+	}
+	return p / (width >> 3);
+}
+
+Pel pelAvgHor(Pel* piAddr, int stride, int width)
+{
+	Pel p = 0;
+	Pel* piTmp = piAddr;
+	for (int j = 0; j < (width >> 3); j++)
+	{
+		p += *piTmp;
+		piTmp += stride;
+	}
+	return p / (width >> 3);
+}
+
+bool DBFmethod(TComDataCU* pcCU, TComPic* pcPic, Pel* piOrg, Pel* pcPelRefL0, Pel* pcPelRefL1, UInt orgStride, int width)
+{
+	UChar sm_betaTable[MAX_QP + 1] =
+	{
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 7, 8, 9, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 16, 16
+	};
+	Int qp = pcPic->getSlice(0)->getSliceQp();
+	Int iQP = 0;
+	Int iQP_P = 0;
+	Int iQP_Q = 0;
+	Int  betaOffsetDiv2 = pcCU->getSlice()->getDeblockingFilterBetaOffsetDiv2();
+
+	Int iIndexB = min(MAX_QP, qp + (betaOffsetDiv2 << 1));
+	const Int bitDepthLuma = pcPic->getSlice(0)->getSPS()->getBitDepth(CHANNEL_TYPE_LUMA);
+	Int bitdepthScale = 1 << (bitDepthLuma - 8);
+	Int beta = 10 * bitdepthScale;
+	const Int thr2 = beta << 1;
+	const Int thr1 = bitdepthScale << 2;
+	UInt a, b, c, d;
+	Double threVerTmpl = 0, threHorTmpl = 0;
+	Double threVerSptl = 0, threHorSptl = 0;
+
+	Pel *pelOriCenter, *pelRefL0Center, *pelRefL1Center;
+	Pel p0, p1, p2, q0, q1, q2;
+
+	// Spatial
+	Pel* pelCenter;
+	// vertical edge detection
+	for (int j = 1; j < (width >> 2); j++)
+	{
+		pelCenter = piOrg + (j << 2);
+		for (int i = 0; i < (width >> 2); i++)
+		{
+			p2 = *(pelCenter - 3);
+			p1 = *(pelCenter - 2);
+			p0 = *(pelCenter - 1);
+			q0 = *pelCenter;
+			q1 = *(pelCenter - 1);
+			q2 = *(pelCenter - 2);
+			a = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+			pelCenter += ((orgStride << 2) - orgStride);
+
+			p2 = *(pelCenter - 3);
+			p1 = *(pelCenter - 2);
+			p0 = *(pelCenter - 1);
+			q0 = *pelCenter;
+			q1 = *(pelCenter - 1);
+			q2 = *(pelCenter - 2);
+			b = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+			pelCenter += orgStride;
+
+			if ((a + b) > thr2) return false;
+		}
+	}
+
+	// horizontal edge detection
+	for (int j = 1; j < (width >> 2); j++)
+	{
+		pelCenter = piOrg + (j << 2) * orgStride;
+		for (int i = 0; i < (width >> 2); i++)
+		{
+			p2 = *(pelCenter - (orgStride << 1) - orgStride);
+			p1 = *(pelCenter - (orgStride << 1));
+			p0 = *(pelCenter - (orgStride));
+			q0 = *pelCenter;
+			q1 = *(pelCenter + (orgStride));
+			q2 = *(pelCenter + (orgStride << 1));
+			c = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+			pelCenter += 3;
+
+			p2 = *(pelCenter - (orgStride << 1) - orgStride);
+			p1 = *(pelCenter - (orgStride << 1));
+			p0 = *(pelCenter - (orgStride));
+			q0 = *pelCenter;
+			q1 = *(pelCenter + (orgStride));
+			q2 = *(pelCenter + (orgStride << 1));
+			d = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+			pelCenter += 1;
+
+			if ((c + d) > thr2) return false;
+		}
+	}
+	// Temporal
+	// vertical edge detection
+	for (int j = 1; j < (width >> 2); j++)
+	{
+		pelOriCenter = piOrg + (j << 2);
+		pelRefL0Center = pcPelRefL0 + (j << 2);
+		for (int i = 0; i < (width >> 2); i++)
+		{
+			p2 = *(pelOriCenter - 1);
+			p1 = *pelOriCenter;
+			p0 = *(pelOriCenter + 1);
+			q0 = *(pelRefL0Center - 1);
+			q1 = *pelRefL0Center;
+			q2 = *(pelRefL0Center + 1);
+			a = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+
+			pelOriCenter += ((orgStride << 2) - orgStride);
+			pelRefL0Center += ((orgStride << 2) - orgStride);
+
+			p2 = *(pelOriCenter - 1);
+			p1 = *pelOriCenter;
+			p0 = *(pelOriCenter + 1);
+			q0 = *(pelRefL0Center - 1);
+			q1 = *pelRefL0Center;
+			q2 = *(pelRefL0Center + 1);
+			b = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+
+			pelOriCenter += orgStride;
+			pelRefL0Center += orgStride;
+
+			if ((a + b) > thr2) return false;
+		}
+	}
+
+	// horizontal edge detection
+	for (int j = 1; j < (width >> 2); j++)
+	{
+		pelOriCenter = piOrg + (j << 2) * orgStride;
+		pelRefL0Center = pcPelRefL0 + (j << 2) * orgStride;
+		pelRefL1Center = pcPelRefL1 + (j << 2) * orgStride;
+		for (int i = 0; i < (width >> 2); i++)
+		{
+			p2 = *(pelOriCenter - orgStride);
+			p1 = *pelOriCenter;
+			p0 = *(pelOriCenter + orgStride);
+			q0 = *(pelRefL0Center - orgStride);
+			q1 = *pelRefL0Center;
+			q2 = *(pelRefL0Center + orgStride);
+			c = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+
+			pelOriCenter += 3;
+			pelRefL0Center += 3;
+
+			p2 = *(pelOriCenter - orgStride);
+			p1 = *pelOriCenter;
+			p0 = *(pelOriCenter + orgStride);
+			q0 = *(pelRefL0Center - orgStride);
+			q1 = *pelRefL0Center;
+			q2 = *(pelRefL0Center + orgStride);
+			d = ((abs(p2 - (p1 << 1) + p0) + abs(q0 - (q1 << 1) + q2)));
+
+			pelOriCenter += 1;
+			pelRefL0Center += 1;
+
+			if ((c + d) > thr2) return false;
+		}
+	}
+	return true;
+}
+
 /** \param  pCtu  pointer of CU data class
  */
 Void TEncCu::encodeCtu ( TComDataCU* pCtu )
@@ -339,7 +668,31 @@ Void TEncCu::deriveTestModeAMP (TComDataCU *pcBestCU, PartSize eParentPartSize, 
 }
 #endif
 
+int CU_SAD(Pel* piOrg, Pel* piRec, UInt orgStride, UInt recStride, int width, double &SAD_value)
+{
+	double diff = 0;
+	double blockNum = 0;
+	int zeroCount = 0;
 
+	for (int i = 0; i < width; i++)
+	{
+		for (int j = 0; j < width; j++)
+		{
+			//cout << (*piOrg - *piRec) / (rpcBestCU->getWidth(0) * rpcBestCU->getWidth(0)) << " ";
+			//printf("%5d ", abs((int)(*(piOrg + j) - *(piRec + j))));
+			if (*(piOrg + j) != 0)
+			{
+				SAD_value += abs((int)(*(piOrg + j) - *(piRec + j)));
+				blockNum++;
+			}
+		}
+		piOrg += orgStride;
+		piRec += recStride;
+	}
+	if (SAD_value == 0) return 0;
+	SAD_value /= blockNum;
+	return 1;
+}
 // ====================================================================================================================
 // Protected member functions
 // ====================================================================================================================
@@ -347,385 +700,487 @@ Void TEncCu::deriveTestModeAMP (TComDataCU *pcBestCU, PartSize eParentPartSize, 
  *  - for loop of QP value to compress the current CU with all possible QP
 */
 #if AMP_ENC_SPEEDUP
-Void TEncCu::xCompressCU( TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const UInt uiDepth DEBUG_STRING_FN_DECLARE(sDebug_), PartSize eParentPartSize )
+Void TEncCu::xCompressCU(TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const int Dmin, const int Dmax, const UInt uiDepth DEBUG_STRING_FN_DECLARE(sDebug_), PartSize eParentPartSize)
 #else
 Void TEncCu::xCompressCU( TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const UInt uiDepth )
 #endif
 {
-  TComPic* pcPic = rpcBestCU->getPic();
-  DEBUG_STRING_NEW(sDebug)
-  const TComPPS &pps=*(rpcTempCU->getSlice()->getPPS());
-  const TComSPS &sps=*(rpcTempCU->getSlice()->getSPS());
-  
-  // These are only used if getFastDeltaQp() is true
-  const UInt fastDeltaQPCuMaxSize    = Clip3(sps.getMaxCUHeight()>>sps.getLog2DiffMaxMinCodingBlockSize(), sps.getMaxCUHeight(), 32u);
+	
+	//o_test << Dmin << " " << Dmax << endl;
 
-  // get Original YUV data from picture
-  m_ppcOrigYuv[uiDepth]->copyFromPicYuv( pcPic->getPicYuvOrg(), rpcBestCU->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu() );
+	Bool t_enCUSkipPred = false; // early skip prediction flag
+	Bool t_enCUSkipSplit = false; // early skip splitting flag
 
-  // variable for Cbf fast mode PU decision
-  Bool    doNotBlockPu = true;
-  Bool    earlyDetectionSkipMode = false;
+	TComPic* pcPic = rpcBestCU->getPic();
+	DEBUG_STRING_NEW(sDebug)
+		const TComPPS &pps = *(rpcTempCU->getSlice()->getPPS());
+	const TComSPS &sps = *(rpcTempCU->getSlice()->getSPS());
 
-  const UInt uiLPelX   = rpcBestCU->getCUPelX();
-  const UInt uiRPelX   = uiLPelX + rpcBestCU->getWidth(0)  - 1;
-  const UInt uiTPelY   = rpcBestCU->getCUPelY();
-  const UInt uiBPelY   = uiTPelY + rpcBestCU->getHeight(0) - 1;
-  const UInt uiWidth   = rpcBestCU->getWidth(0);
+	// These are only used if getFastDeltaQp() is true
+	const UInt fastDeltaQPCuMaxSize = Clip3(sps.getMaxCUHeight() >> sps.getLog2DiffMaxMinCodingBlockSize(), sps.getMaxCUHeight(), 32u);
 
-  Int iBaseQP = xComputeQP( rpcBestCU, uiDepth );
-  Int iMinQP;
-  Int iMaxQP;
-  Bool isAddLowestQP = false;
+	// get Original YUV data from picture
+	m_ppcOrigYuv[uiDepth]->copyFromPicYuv(pcPic->getPicYuvOrg(), rpcBestCU->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu());
 
-  const UInt numberValidComponents = rpcBestCU->getPic()->getNumberValidComponents();
+	// variable for Cbf fast mode PU decision
+	Bool    doNotBlockPu = true;
+	Bool    earlyDetectionSkipMode = false;
 
-  if( uiDepth <= pps.getMaxCuDQPDepth() )
-  {
-    Int idQP = m_pcEncCfg->getMaxDeltaQP();
-    iMinQP = Clip3( -sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP-idQP );
-    iMaxQP = Clip3( -sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP+idQP );
-  }
-  else
-  {
-    iMinQP = rpcTempCU->getQP(0);
-    iMaxQP = rpcTempCU->getQP(0);
-  }
+	const UInt uiLPelX = rpcBestCU->getCUPelX();
+	const UInt uiRPelX = uiLPelX + rpcBestCU->getWidth(0) - 1;
+	const UInt uiTPelY = rpcBestCU->getCUPelY();
+	const UInt uiBPelY = uiTPelY + rpcBestCU->getHeight(0) - 1;
+	const UInt uiWidth = rpcBestCU->getWidth(0);
 
-  if ( m_pcEncCfg->getUseRateCtrl() )
-  {
-    iMinQP = m_pcRateCtrl->getRCQP();
-    iMaxQP = m_pcRateCtrl->getRCQP();
-  }
+	Int iBaseQP = xComputeQP(rpcBestCU, uiDepth);
+	Int iMinQP;
+	Int iMaxQP;
+	Bool isAddLowestQP = false;
 
-  // transquant-bypass (TQB) processing loop variable initialisation ---
+	const UInt numberValidComponents = rpcBestCU->getPic()->getNumberValidComponents();
 
-  const Int lowestQP = iMinQP; // For TQB, use this QP which is the lowest non TQB QP tested (rather than QP'=0) - that way delta QPs are smaller, and TQB can be tested at all CU levels.
+	if (uiDepth <= pps.getMaxCuDQPDepth())
+	{
+		Int idQP = m_pcEncCfg->getMaxDeltaQP();
+		iMinQP = Clip3(-sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP - idQP);
+		iMaxQP = Clip3(-sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP + idQP);
+	}
+	else
+	{
+		iMinQP = rpcTempCU->getQP(0);
+		iMaxQP = rpcTempCU->getQP(0);
+	}
 
-  if ( (pps.getTransquantBypassEnableFlag()) )
-  {
-    isAddLowestQP = true; // mark that the first iteration is to cost TQB mode.
-    iMinQP = iMinQP - 1;  // increase loop variable range by 1, to allow testing of TQB mode along with other QPs
-    if ( m_pcEncCfg->getCUTransquantBypassFlagForceValue() )
-    {
-      iMaxQP = iMinQP;
-    }
-  }
+	if (m_pcEncCfg->getUseRateCtrl())
+	{
+		iMinQP = m_pcRateCtrl->getRCQP();
+		iMaxQP = m_pcRateCtrl->getRCQP();
+	}
 
-  TComSlice * pcSlice = rpcTempCU->getPic()->getSlice(rpcTempCU->getPic()->getCurrSliceIdx());
+	// transquant-bypass (TQB) processing loop variable initialisation ---
 
-  const Bool bBoundary = !( uiRPelX < sps.getPicWidthInLumaSamples() && uiBPelY < sps.getPicHeightInLumaSamples() );
+	const Int lowestQP = iMinQP; // For TQB, use this QP which is the lowest non TQB QP tested (rather than QP'=0) - that way delta QPs are smaller, and TQB can be tested at all CU levels.
 
-  if ( !bBoundary )
-  {
-    for (Int iQP=iMinQP; iQP<=iMaxQP; iQP++)
-    {
-      const Bool bIsLosslessMode = isAddLowestQP && (iQP == iMinQP);
+	if ((pps.getTransquantBypassEnableFlag()))
+	{
+		isAddLowestQP = true; // mark that the first iteration is to cost TQB mode.
+		iMinQP = iMinQP - 1;  // increase loop variable range by 1, to allow testing of TQB mode along with other QPs
+		if (m_pcEncCfg->getCUTransquantBypassFlagForceValue())
+		{
+			iMaxQP = iMinQP;
+		}
+	}
 
-      if (bIsLosslessMode)
-      {
-        iQP = lowestQP;
-      }
+	TComSlice * pcSlice = rpcTempCU->getPic()->getSlice(rpcTempCU->getPic()->getCurrSliceIdx());
 
-      m_cuChromaQpOffsetIdxPlus1 = 0;
-      if (pcSlice->getUseChromaQpAdj())
-      {
-        /* Pre-estimation of chroma QP based on input block activity may be performed
-         * here, using for example m_ppcOrigYuv[uiDepth] */
-        /* To exercise the current code, the index used for adjustment is based on
-         * block position
-         */
-        Int lgMinCuSize = sps.getLog2MinCodingBlockSize() +
-                          std::max<Int>(0, sps.getLog2DiffMaxMinCodingBlockSize()-Int(pps.getPpsRangeExtension().getDiffCuChromaQpOffsetDepth()));
-        m_cuChromaQpOffsetIdxPlus1 = ((uiLPelX >> lgMinCuSize) + (uiTPelY >> lgMinCuSize)) % (pps.getPpsRangeExtension().getChromaQpOffsetListLen() + 1);
-      }
+	const Bool bBoundary = !(uiRPelX < sps.getPicWidthInLumaSamples() && uiBPelY < sps.getPicHeightInLumaSamples());
+	
+	int SADtmpNum = 0;
+	TComDataCU *pcCUColocated = rpcBestCU->getCUColocated(REF_PIC_LIST_0);
 
-      rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+	//if (pcCUColocated == NULL)
+		//outS << 0;
+		//outS << "///" << e && ndl;
+	//cout << "///" << endl;
 
-      // do inter modes, SKIP and 2Nx2N
-      if( rpcBestCU->getSlice()->getSliceType() != I_SLICE )
-      {
-        // 2Nx2N
-        if(m_pcEncCfg->getUseEarlySkipDetection())
-        {
-          xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug) );
-          rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );//by Competition for inter_2Nx2N
-        }
-        // SKIP
-        xCheckRDCostMerge2Nx2N( rpcBestCU, rpcTempCU DEBUG_STRING_PASS_INTO(sDebug), &earlyDetectionSkipMode );//by Merge for inter_2Nx2N
-        rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+	//outS << uiDepth << " " << Dmin << endl;
 
-        if(!m_pcEncCfg->getUseEarlySkipDetection())
-        {
-          // 2Nx2N, NxN
-          xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug) );
-          rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-          if(m_pcEncCfg->getUseCbfFastMode())
-          {
-            doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-          }
-        }
-      }
+	if (pcCUColocated != NULL && (uiDepth == 0 && Dmin != 0) && !bBoundary)
+	{
+		//outS << "********" << endl;
+		Pel* piOrg = rpcBestCU->getPic()->getPicYuvOrg()->getAddr(COMPONENT_Y, m_ppcBestCU[0]->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu());
+		Pel* piRec = pcCUColocated->getPic()->getPicYuvOrg()->getAddr(COMPONENT_Y, m_ppcBestCU[0]->getCtuRsAddr(), pcCUColocated->getZorderIdxInCtu());
+		UInt orgStride = rpcBestCU->getPic()->getPicYuvOrg()->getStride(COMPONENT_Y);
+		UInt recStride = pcCUColocated->getPic()->getPicYuvOrg()->getStride(COMPONENT_Y);
+		int width = (int)rpcBestCU->getWidth(0);
+		double SAD_value[9] = { 0 };
+		int block_num = 0;
+		int orgHeight = orgStride * width;
+		int recHeight = recStride * width;
 
-      if (bIsLosslessMode) // Restore loop variable if lossless mode was searched.
-      {
-        iQP = iMinQP;
-      }
-    }
+		block_num += CU_SAD(piOrg - (orgHeight + width), piRec - (recHeight + width), orgStride, recStride, width, SAD_value[0]);
+		block_num += CU_SAD(piOrg - orgHeight, piRec - recHeight, orgStride, recStride, width, SAD_value[1]);
+		block_num += CU_SAD(piOrg - (orgHeight - width), piRec - (recHeight - width), orgStride, recStride, width, SAD_value[2]);
 
-    if(!earlyDetectionSkipMode)
-    {
-      for (Int iQP=iMinQP; iQP<=iMaxQP; iQP++)
-      {
-        const Bool bIsLosslessMode = isAddLowestQP && (iQP == iMinQP); // If lossless, then iQP is irrelevant for subsequent modules.
+		block_num += CU_SAD(piOrg - width, piRec - width, orgStride, recStride, width, SAD_value[3]);
+		block_num += CU_SAD(piOrg, piRec, orgStride, recStride, width, SAD_value[4]); // Center
+		block_num += CU_SAD(piOrg + width, piRec + width, orgStride, recStride, width, SAD_value[5]);
 
-        if (bIsLosslessMode)
-        {
-          iQP = lowestQP;
-        }
+		block_num += CU_SAD(piOrg + (orgHeight - width), piRec + (recHeight - width), orgStride, recStride, width, SAD_value[6]);
+		block_num += CU_SAD(piOrg + orgHeight, piRec + recHeight, orgStride, recStride, width, SAD_value[7]);
+		block_num += CU_SAD(piOrg + (orgHeight + width), piRec + (recHeight + width), orgStride, recStride, width, SAD_value[8]);
 
-        rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+		
+		double SAD_min = SAD_value[0];
 
-        // do inter modes, NxN, 2NxN, and Nx2N
-        if( rpcBestCU->getSlice()->getSliceType() != I_SLICE )
-        {
-          // 2Nx2N, NxN
+		if (block_num > 4)
+		{
+			for (int i = 0; i < 9; i++)
+			{
+				if (SAD_value[i] != 0 && SAD_min > SAD_value[i])
+				{
+					SAD_min = SAD_value[i];
+					SADtmpNum = i;
+				}
+			}
+			double diff = (SAD_value[4] > SAD_min && SAD_min != 0 && SAD_value[4] != 0) ? (SAD_min / SAD_value[4]) : (SAD_value[4] / SAD_min);
 
-          if(!( (rpcBestCU->getWidth(0)==8) && (rpcBestCU->getHeight(0)==8) ))
-          {
-            if( uiDepth == sps.getLog2DiffMaxMinCodingBlockSize() && doNotBlockPu)
-            {
-              xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_NxN DEBUG_STRING_PASS_INTO(sDebug)   );
-              rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            }
-          }
+			//outS << diff << endl;
 
-          if(doNotBlockPu)
-          {
-            xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_Nx2N DEBUG_STRING_PASS_INTO(sDebug)  );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_Nx2N )
-            {
-              doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-            }
-          }
-          if(doNotBlockPu)
-          {
-            xCheckRDCostInter      ( rpcBestCU, rpcTempCU, SIZE_2NxN DEBUG_STRING_PASS_INTO(sDebug)  );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxN)
-            {
-              doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-            }
-          }
+			if (SAD_min != 0 && SAD_value[4] != 0)
+			{
+				//outS << SAD_min << "" << SAD_value[4] << "" << diff << endl;
+				//c out << SAD_min << " " << SAD_value[4] << " " << diff << endl;
+				t_enCUSkipSplit = (diff > SAD_THRESHOLD && diff < 1) ? true : t_enCUSkipSplit;
+				if (t_enCUSkipSplit == true)
+					outS << 1;
+				else
+					outS << 0;
+			}
+		}
+	}
 
-          //! Try AMP (SIZE_2NxnU, SIZE_2NxnD, SIZE_nLx2N, SIZE_nRx2N)
-          if(sps.getUseAMP() && uiDepth < sps.getLog2DiffMaxMinCodingBlockSize() )
-          {
+	if (uiDepth >= Dmin && uiDepth <= Dmax && !rpcBestCU->getSlice()->isIntra()) // uiDepth is during the prediction depth
+	{
+		Pel* piOrg = rpcBestCU->getPic()->getPicYuvOrg()->getAddr(COMPONENT_Y, m_ppcBestCU[0]->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu());
+		UInt orgStride = rpcBestCU->getPic()->getPicYuvOrg()->getStride(COMPONENT_Y);
+		if (pcCUColocated != NULL)
+		{
+			Pel* piRefL0 = pcCUColocated->getPic()->getPicYuvOrg()->getAddr(COMPONENT_Y, m_ppcBestCU[0]->getCtuRsAddr(), pcCUColocated->getZorderIdxInCtu());// 沒用?
+			TComPic *pcPicRefL0 = rpcBestCU->getSlice()->getRefPic(RefPicList(0), 0);
+			Pel* pcPelRefL0 = pcPicRefL0->getPicYuvOrg()->getAddr(COMPONENT_Y, m_ppcBestCU[0]->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu());
+			t_enCUSkipSplit = (DBFmethod(rpcBestCU, rpcBestCU->getPic(), piOrg, pcPelRefL0, pcPelRefL0, orgStride, rpcBestCU->getWidth(0))) ? true : t_enCUSkipSplit;
+		}
+	}
+	else if (uiDepth < Dmin && !rpcBestCU->getSlice()->isIntra()) // skip the depth smaller than Dmin, so make RD cost to be maximum
+	{
+		if (!t_enCUSkipSplit)
+		{
+			rpcBestCU->getTotalCost() = MAX_DOUBLE / 16;
+			rpcBestCU->getTotalDistortion() = MAX_UINT >> 3;
+			rpcBestCU->getTotalBits() = MAX_UINT >> 3;
+			rpcBestCU->setPartitionSize(0, SIZE_2Nx2N);
+			rpcBestCU->setPredictionMode(0, MODE_INTRA);
+			t_enCUSkipPred = true;
+		}
+	}
+	else if (!rpcBestCU->getSlice()->isIntra()) // skip the depth larger than Dmax, stop spliting
+	{
+		t_enCUSkipSplit = true;
+	}
+	if (!bBoundary)
+	{
+		if (!t_enCUSkipPred)
+		{
+			for (Int iQP = iMinQP; iQP <= iMaxQP; iQP++)
+			{
+				const Bool bIsLosslessMode = isAddLowestQP && (iQP == iMinQP);
+
+				if (bIsLosslessMode)
+				{
+					iQP = lowestQP;
+				}
+
+				m_cuChromaQpOffsetIdxPlus1 = 0;
+				if (pcSlice->getUseChromaQpAdj())
+				{
+					/* Pre-estimation of chroma QP based on input block activity may be performed
+					 * here, using for example m_ppcOrigYuv[uiDepth] */
+					/* To exercise the current code, the index used for adjustment is based on
+					 * block position
+					 */
+					Int lgMinCuSize = sps.getLog2MinCodingBlockSize() +
+						std::max<Int>(0, sps.getLog2DiffMaxMinCodingBlockSize() - Int(pps.getPpsRangeExtension().getDiffCuChromaQpOffsetDepth()));
+					m_cuChromaQpOffsetIdxPlus1 = ((uiLPelX >> lgMinCuSize) + (uiTPelY >> lgMinCuSize)) % (pps.getPpsRangeExtension().getChromaQpOffsetListLen() + 1);
+				}
+				rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+				// do inter modes, SKIP and 2Nx2N
+				if (rpcBestCU->getSlice()->getSliceType() != I_SLICE)
+				{
+					// 2Nx2N
+					if (m_pcEncCfg->getUseEarlySkipDetection())
+					{
+						xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug));
+						rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);//by Competition for inter_2Nx2N
+					}
+					// SKIP
+					xCheckRDCostMerge2Nx2N(rpcBestCU, rpcTempCU DEBUG_STRING_PASS_INTO(sDebug), &earlyDetectionSkipMode);//by Merge for inter_2Nx2N
+					rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+					if (!m_pcEncCfg->getUseEarlySkipDetection())
+					{
+						// 2Nx2N, NxN
+						xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug));
+						rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+						if (m_pcEncCfg->getUseCbfFastMode())
+						{
+							doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+						}
+					}
+				}
+
+				if (bIsLosslessMode) // Restore loop variable if lossless mode was searched.
+				{
+					iQP = iMinQP;
+				}
+			}
+			// PredType == 0 End
+
+			if (!earlyDetectionSkipMode)
+			{
+				for (Int iQP = iMinQP; iQP <= iMaxQP; iQP++)
+				{
+					const Bool bIsLosslessMode = isAddLowestQP && (iQP == iMinQP); // If lossless, then iQP is irrelevant for subsequent modules.
+
+					if (bIsLosslessMode)
+					{
+						iQP = lowestQP;
+					}
+					rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+					// do inter modes, NxN, 2NxN, and Nx2N
+					if (rpcBestCU->getSlice()->getSliceType() != I_SLICE)
+					{
+						// 2Nx2N, NxN
+
+						if (!((rpcBestCU->getWidth(0) == 8) && (rpcBestCU->getHeight(0) == 8)))
+						{
+							if (uiDepth == sps.getLog2DiffMaxMinCodingBlockSize() && doNotBlockPu)
+							{
+								xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_NxN DEBUG_STRING_PASS_INTO(sDebug));
+								rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+							}
+						}
+
+						if (doNotBlockPu)
+						{
+							xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_Nx2N DEBUG_STRING_PASS_INTO(sDebug));
+							rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+							if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_Nx2N)
+							{
+								doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+							}
+						}
+						if (doNotBlockPu)
+						{
+							xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2NxN DEBUG_STRING_PASS_INTO(sDebug));
+							rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+							if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxN)
+							{
+								doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+							}
+						}
+
+						//! Try AMP (SIZE_2NxnU, SIZE_2NxnD, SIZE_nLx2N, SIZE_nRx2N)
+						if (sps.getUseAMP() && uiDepth < sps.getLog2DiffMaxMinCodingBlockSize())
+						{
 #if AMP_ENC_SPEEDUP
-            Bool bTestAMP_Hor = false, bTestAMP_Ver = false;
+							Bool bTestAMP_Hor = false, bTestAMP_Ver = false;
 
 #if AMP_MRG
-            Bool bTestMergeAMP_Hor = false, bTestMergeAMP_Ver = false;
+							Bool bTestMergeAMP_Hor = false, bTestMergeAMP_Ver = false;
 
-            deriveTestModeAMP (rpcBestCU, eParentPartSize, bTestAMP_Hor, bTestAMP_Ver, bTestMergeAMP_Hor, bTestMergeAMP_Ver);
+							deriveTestModeAMP(rpcBestCU, eParentPartSize, bTestAMP_Hor, bTestAMP_Ver, bTestMergeAMP_Hor, bTestMergeAMP_Ver);
 #else
-            deriveTestModeAMP (rpcBestCU, eParentPartSize, bTestAMP_Hor, bTestAMP_Ver);
+							deriveTestModeAMP (rpcBestCU, eParentPartSize, bTestAMP_Hor, bTestAMP_Ver);
 #endif
 
-            //! Do horizontal AMP
-            if ( bTestAMP_Hor )
-            {
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnU DEBUG_STRING_PASS_INTO(sDebug) );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnU )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnD DEBUG_STRING_PASS_INTO(sDebug) );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnD )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-            }
+							//! Do horizontal AMP
+							if (bTestAMP_Hor)
+							{
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2NxnU DEBUG_STRING_PASS_INTO(sDebug));
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnU)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2NxnD DEBUG_STRING_PASS_INTO(sDebug));
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnD)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+							}
 #if AMP_MRG
-            else if ( bTestMergeAMP_Hor )
-            {
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnU DEBUG_STRING_PASS_INTO(sDebug), true );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnU )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnD DEBUG_STRING_PASS_INTO(sDebug), true );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnD )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-            }
+							else if (bTestMergeAMP_Hor)
+							{
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2NxnU DEBUG_STRING_PASS_INTO(sDebug), true);
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnU)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_2NxnD DEBUG_STRING_PASS_INTO(sDebug), true);
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_2NxnD)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+							}
 #endif
 
-            //! Do horizontal AMP
-            if ( bTestAMP_Ver )
-            {
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nLx2N DEBUG_STRING_PASS_INTO(sDebug) );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_nLx2N )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nRx2N DEBUG_STRING_PASS_INTO(sDebug) );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-              }
-            }
+							//! Do horizontal AMP
+							if (bTestAMP_Ver)
+							{
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_nLx2N DEBUG_STRING_PASS_INTO(sDebug));
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_nLx2N)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_nRx2N DEBUG_STRING_PASS_INTO(sDebug));
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+								}
+							}
 #if AMP_MRG
-            else if ( bTestMergeAMP_Ver )
-            {
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nLx2N DEBUG_STRING_PASS_INTO(sDebug), true );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-                if(m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_nLx2N )
-                {
-                  doNotBlockPu = rpcBestCU->getQtRootCbf( 0 ) != 0;
-                }
-              }
-              if(doNotBlockPu)
-              {
-                xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nRx2N DEBUG_STRING_PASS_INTO(sDebug), true );
-                rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-              }
-            }
+							else if (bTestMergeAMP_Ver)
+							{
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_nLx2N DEBUG_STRING_PASS_INTO(sDebug), true);
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+									if (m_pcEncCfg->getUseCbfFastMode() && rpcBestCU->getPartitionSize(0) == SIZE_nLx2N)
+									{
+										doNotBlockPu = rpcBestCU->getQtRootCbf(0) != 0;
+									}
+								}
+								if (doNotBlockPu)
+								{
+									xCheckRDCostInter(rpcBestCU, rpcTempCU, SIZE_nRx2N DEBUG_STRING_PASS_INTO(sDebug), true);
+									rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+								}
+							}
 #endif
 
 #else
-            xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnU );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnD );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nLx2N );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+							xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnU );
+							rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+							xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_2NxnD );
+							rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+							xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nLx2N );
+							rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
 
-            xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nRx2N );
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
+							xCheckRDCostInter( rpcBestCU, rpcTempCU, SIZE_nRx2N );
+							rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
 
 #endif
-          }
-        }
+						}
+					}
 
-        // do normal intra modes
-        // speedup for inter frames
-        Double intraCost = 0.0;
+					// do normal intra modes
+					// speedup for inter frames
+					Double intraCost = 0.0;
 
-        if((rpcBestCU->getSlice()->getSliceType() == I_SLICE)                                        ||
-            ((!m_pcEncCfg->getDisableIntraPUsInInterSlices()) && (
-              (rpcBestCU->getCbf( 0, COMPONENT_Y  ) != 0)                                            ||
-             ((rpcBestCU->getCbf( 0, COMPONENT_Cb ) != 0) && (numberValidComponents > COMPONENT_Cb)) ||
-             ((rpcBestCU->getCbf( 0, COMPONENT_Cr ) != 0) && (numberValidComponents > COMPONENT_Cr))  // avoid very complex intra if it is unlikely
-            )))
-        {
-          xCheckRDCostIntra( rpcBestCU, rpcTempCU, intraCost, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug) );
-          rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-          if( uiDepth == sps.getLog2DiffMaxMinCodingBlockSize() )
-          {
-            if( rpcTempCU->getWidth(0) > ( 1 << sps.getQuadtreeTULog2MinSize() ) )
-            {
-              Double tmpIntraCost;
-              xCheckRDCostIntra( rpcBestCU, rpcTempCU, tmpIntraCost, SIZE_NxN DEBUG_STRING_PASS_INTO(sDebug)   );
-              intraCost = std::min(intraCost, tmpIntraCost);
-              rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-            }
-          }
-        }
+					if ((rpcBestCU->getSlice()->getSliceType() == I_SLICE) ||
+						((!m_pcEncCfg->getDisableIntraPUsInInterSlices()) && (
+						(rpcBestCU->getCbf(0, COMPONENT_Y) != 0) ||
+						((rpcBestCU->getCbf(0, COMPONENT_Cb) != 0) && (numberValidComponents > COMPONENT_Cb)) ||
+						((rpcBestCU->getCbf(0, COMPONENT_Cr) != 0) && (numberValidComponents > COMPONENT_Cr))  // avoid very complex intra if it is unlikely
+						)))
+					{
+						xCheckRDCostIntra(rpcBestCU, rpcTempCU, intraCost, SIZE_2Nx2N DEBUG_STRING_PASS_INTO(sDebug));
+						rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
 
-        // test PCM
-        if(sps.getUsePCM()
-          && rpcTempCU->getWidth(0) <= (1<<sps.getPCMLog2MaxSize())
-          && rpcTempCU->getWidth(0) >= (1<<sps.getPCMLog2MinSize()) )
-        {
-          UInt uiRawBits = getTotalBits(rpcBestCU->getWidth(0), rpcBestCU->getHeight(0), rpcBestCU->getPic()->getChromaFormat(), sps.getBitDepths().recon);
-          UInt uiBestBits = rpcBestCU->getTotalBits();
-          if((uiBestBits > uiRawBits) || (rpcBestCU->getTotalCost() > m_pcRdCost->calcRdCost(uiRawBits, 0)))
-          {
-            xCheckIntraPCM (rpcBestCU, rpcTempCU);
-            rpcTempCU->initEstData( uiDepth, iQP, bIsLosslessMode );
-          }
-        }
+						if (uiDepth == sps.getLog2DiffMaxMinCodingBlockSize())
+						{
+							if (rpcTempCU->getWidth(0) > (1 << sps.getQuadtreeTULog2MinSize()))
+							{
+								Double tmpIntraCost;
+								xCheckRDCostIntra(rpcBestCU, rpcTempCU, tmpIntraCost, SIZE_NxN DEBUG_STRING_PASS_INTO(sDebug));
+								intraCost = std::min(intraCost, tmpIntraCost);
+								rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
 
-        if (bIsLosslessMode) // Restore loop variable if lossless mode was searched.
-        {
-          iQP = iMinQP;
-        }
-      }
-    }
+							}
+						}
+					}
 
-    if( rpcBestCU->getTotalCost()!=MAX_DOUBLE )
-    {
-      m_pcRDGoOnSbacCoder->load(m_pppcRDSbacCoder[uiDepth][CI_NEXT_BEST]);
-      m_pcEntropyCoder->resetBits();
-      m_pcEntropyCoder->encodeSplitFlag( rpcBestCU, 0, uiDepth, true );
-      rpcBestCU->getTotalBits() += m_pcEntropyCoder->getNumberOfWrittenBits(); // split bits
-      rpcBestCU->getTotalBins() += ((TEncBinCABAC *)((TEncSbac*)m_pcEntropyCoder->m_pcEntropyCoderIf)->getEncBinIf())->getBinsCoded();
-      rpcBestCU->getTotalCost()  = m_pcRdCost->calcRdCost( rpcBestCU->getTotalBits(), rpcBestCU->getTotalDistortion() );
-      m_pcRDGoOnSbacCoder->store(m_pppcRDSbacCoder[uiDepth][CI_NEXT_BEST]);
-    }
-  }
+					// test PCM
+					if (sps.getUsePCM()
+						&& rpcTempCU->getWidth(0) <= (1 << sps.getPCMLog2MaxSize())
+						&& rpcTempCU->getWidth(0) >= (1 << sps.getPCMLog2MinSize()))
+					{
+						UInt uiRawBits = getTotalBits(rpcBestCU->getWidth(0), rpcBestCU->getHeight(0), rpcBestCU->getPic()->getChromaFormat(), sps.getBitDepths().recon);
+						UInt uiBestBits = rpcBestCU->getTotalBits();
+						if ((uiBestBits > uiRawBits) || (rpcBestCU->getTotalCost() > m_pcRdCost->calcRdCost(uiRawBits, 0)))
+						{
+							xCheckIntraPCM(rpcBestCU, rpcTempCU);
+							rpcTempCU->initEstData(uiDepth, iQP, bIsLosslessMode);
+						}
+					}
 
-  // copy original YUV samples to PCM buffer
-  if( rpcBestCU->getTotalCost()!=MAX_DOUBLE && rpcBestCU->isLosslessCoded(0) && (rpcBestCU->getIPCMFlag(0) == false))
-  {
-    xFillPCMBuffer(rpcBestCU, m_ppcOrigYuv[uiDepth]);
-  }
+					if (bIsLosslessMode) // Restore loop variable if lossless mode was searched.
+					{
+						iQP = iMinQP;
+					}
+				}
+			}
+		}
+		// end prediction
+		if (rpcBestCU->getTotalCost() != MAX_DOUBLE)
+		{
+			m_pcRDGoOnSbacCoder->load(m_pppcRDSbacCoder[uiDepth][CI_NEXT_BEST]);
+			m_pcEntropyCoder->resetBits();
+			m_pcEntropyCoder->encodeSplitFlag(rpcBestCU, 0, uiDepth, true);
+			rpcBestCU->getTotalBits() += m_pcEntropyCoder->getNumberOfWrittenBits(); // split bits
+			rpcBestCU->getTotalBins() += ((TEncBinCABAC *)((TEncSbac*)m_pcEntropyCoder->m_pcEntropyCoderIf)->getEncBinIf())->getBinsCoded();
+			rpcBestCU->getTotalCost() = m_pcRdCost->calcRdCost(rpcBestCU->getTotalBits(), rpcBestCU->getTotalDistortion());
+			m_pcRDGoOnSbacCoder->store(m_pppcRDSbacCoder[uiDepth][CI_NEXT_BEST]);
+		}
+	}
+	// end bBoundary prediction
+	// copy original YUV samples to PCM buffer
+	if (rpcBestCU->getTotalCost() != MAX_DOUBLE && rpcBestCU->isLosslessCoded(0) && (rpcBestCU->getIPCMFlag(0) == false))
+	{
+		xFillPCMBuffer(rpcBestCU, m_ppcOrigYuv[uiDepth]);
+	}
 
-  if( uiDepth == pps.getMaxCuDQPDepth() )
-  {
-    Int idQP = m_pcEncCfg->getMaxDeltaQP();
-    iMinQP = Clip3( -sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP-idQP );
-    iMaxQP = Clip3( -sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP+idQP );
-  }
-  else if( uiDepth < pps.getMaxCuDQPDepth() )
-  {
-    iMinQP = iBaseQP;
-    iMaxQP = iBaseQP;
-  }
-  else
-  {
-    const Int iStartQP = rpcTempCU->getQP(0);
-    iMinQP = iStartQP;
-    iMaxQP = iStartQP;
-  }
+	if (uiDepth == pps.getMaxCuDQPDepth())
+	{
+		Int idQP = m_pcEncCfg->getMaxDeltaQP();
+		iMinQP = Clip3(-sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP - idQP);
+		iMaxQP = Clip3(-sps.getQpBDOffset(CHANNEL_TYPE_LUMA), MAX_QP, iBaseQP + idQP);
+	}
+	else if (uiDepth < pps.getMaxCuDQPDepth())
+	{
+		iMinQP = iBaseQP;
+		iMaxQP = iBaseQP;
+	}
+	else
+	{
+		const Int iStartQP = rpcTempCU->getQP(0);
+		iMinQP = iStartQP;
+		iMaxQP = iStartQP;
+	}
 
-  if ( m_pcEncCfg->getUseRateCtrl() )
-  {
-    iMinQP = m_pcRateCtrl->getRCQP();
-    iMaxQP = m_pcRateCtrl->getRCQP();
-  }
+	if (m_pcEncCfg->getUseRateCtrl())
+	{
+		iMinQP = m_pcRateCtrl->getRCQP();
+		iMaxQP = m_pcRateCtrl->getRCQP();
+	}
 
-  if ( m_pcEncCfg->getCUTransquantBypassFlagForceValue() )
-  {
-    iMaxQP = iMinQP; // If all TUs are forced into using transquant bypass, do not loop here.
-  }
+	if (m_pcEncCfg->getCUTransquantBypassFlagForceValue())
+	{
+		iMaxQP = iMinQP; // If all TUs are forced into using transquant bypass, do not loop here.
+	}
 
-  const Bool bSubBranch = bBoundary || !( m_pcEncCfg->getUseEarlyCU() && rpcBestCU->getTotalCost()!=MAX_DOUBLE && rpcBestCU->isSkipped(0) );
+	Bool bSubBranch = bBoundary || !(m_pcEncCfg->getUseEarlyCU() && rpcBestCU->getTotalCost() != MAX_DOUBLE && rpcBestCU->isSkipped(0));
+
+  if (((rpcBestCU->getMergeFlag(0) && !rpcBestCU->getCbf(0, COMPONENT_Y)) || t_enCUSkipSplit) && !bBoundary) { bSubBranch = false; }
 
   if( bSubBranch && uiDepth < sps.getLog2DiffMaxMinCodingBlockSize() && (!getFastDeltaQp() || uiWidth > fastDeltaQPCuMaxSize || bBoundary))
   {
@@ -756,18 +1211,17 @@ Void TEncCu::xCompressCU( TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const 
           {
             m_pppcRDSbacCoder[uhNextDepth][CI_CURR_BEST]->load(m_pppcRDSbacCoder[uhNextDepth][CI_NEXT_BEST]);
           }
-
 #if AMP_ENC_SPEEDUP
           DEBUG_STRING_NEW(sChild)
-          if ( !(rpcBestCU->getTotalCost()!=MAX_DOUBLE && rpcBestCU->isInter(0)) )
-          {
-            xCompressCU( pcSubBestPartCU, pcSubTempPartCU, uhNextDepth DEBUG_STRING_PASS_INTO(sChild), NUMBER_OF_PART_SIZES );
-          }
-          else
-          {
+		  if (!(rpcBestCU->getTotalCost() != MAX_DOUBLE && rpcBestCU->isInter(0)))
+		  {
+			  xCompressCU(pcSubBestPartCU, pcSubTempPartCU, Dmin, Dmax, uhNextDepth DEBUG_STRING_PASS_INTO(sChild), NUMBER_OF_PART_SIZES);
+		  }
+		  else
+		  {
 
-            xCompressCU( pcSubBestPartCU, pcSubTempPartCU, uhNextDepth DEBUG_STRING_PASS_INTO(sChild), rpcBestCU->getPartitionSize(0) );
-          }
+			  xCompressCU(pcSubBestPartCU, pcSubTempPartCU, Dmin, Dmax, uhNextDepth DEBUG_STRING_PASS_INTO(sChild), rpcBestCU->getPartitionSize(0));
+		  }
           DEBUG_STRING_APPEND(sTempDebug, sChild)
 #else
           xCompressCU( pcSubBestPartCU, pcSubTempPartCU, uhNextDepth );
@@ -825,7 +1279,7 @@ Void TEncCu::xCompressCU( TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const 
           rpcTempCU->setQPSubParts( rpcTempCU->getRefQP( 0 ), 0, uiDepth ); // set QP to default QP
         }
       }
-
+	  //rpcTempCU->setCPSubParts(uiDepth, 0, uiDepth);
       m_pcRDGoOnSbacCoder->store(m_pppcRDSbacCoder[uiDepth][CI_TEMP_BEST]);
 
       // If the configuration being tested exceeds the maximum number of bytes for a slice / slice-segment, then
@@ -855,7 +1309,7 @@ Void TEncCu::xCompressCU( TComDataCU*& rpcBestCU, TComDataCU*& rpcTempCU, const 
   }
 
   DEBUG_STRING_APPEND(sDebug_, sDebug);
-
+  
   rpcBestCU->copyToPic(uiDepth);                                                     // Copy Best data to Picture for next partition prediction.
 
   xCopyYuv2Pic( rpcBestCU->getPic(), rpcBestCU->getCtuRsAddr(), rpcBestCU->getZorderIdxInCtu(), uiDepth, uiDepth );   // Copy Yuv data to picture Yuv
@@ -1023,7 +1477,6 @@ Void TEncCu::xEncodeCU( TComDataCU* pcCU, UInt uiAbsPartIdx, UInt uiDepth )
       return;
     }
   }
-
   // prediction Info ( Intra : direction mode, Inter : Mv, reference idx )
   m_pcEntropyCoder->encodePredInfo( pcCU, uiAbsPartIdx );
 

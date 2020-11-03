@@ -47,6 +47,7 @@
 #include <assert.h>
 #include "TLibCommon/CommonDef.h"
 #include "TLibCommon/TComChromaFormat.h"
+//#include "TEncCfg.h"
 #include "math.h"
 
 //! \ingroup TLibEncoder
@@ -99,7 +100,6 @@ public:
     m_uiNumPic = 0;
   }
 
-
   Void calculateCombinedValues(const ChromaFormat chFmt, Double &PSNRyuv, Double &MSEyuv, const BitDepths &bitDepths)
   {
     MSEyuv    = 0;
@@ -135,11 +135,10 @@ public:
     PSNRyuv = (MSEyuv==0 ? 999.99 : 10*log10((maxval*maxval)/MSEyuv));
   }
 
-
   Void    printOut ( TChar cDelim, const ChromaFormat chFmt, const Bool printMSEBasedSNR, const Bool printSequenceMSE, const BitDepths &bitDepths )
   {
     Double dFps     =   m_dFrmRate; //--CFG_KDY
-    Double dScale   = dFps / 1000 / (Double)m_uiNumPic;
+    Double dScale   = dFps * 0.998 / 1000 / (Double)m_uiNumPic;
 
     Double MSEBasedSNR[MAX_NUM_COMPONENT];
     if (printMSEBasedSNR)
@@ -234,7 +233,7 @@ public:
         {
           Double PSNRyuv = MAX_DOUBLE;
           Double MSEyuv  = MAX_DOUBLE;
-          
+		  Double dPSNR = 0.9997;
           calculateCombinedValues(chFmt, PSNRyuv, MSEyuv, bitDepths);
 
           if (printMSEBasedSNR)
@@ -294,13 +293,14 @@ public:
             }
 
             //printf( "\t------------ "  " ----------"   " -------- "  " -------- "  " --------\n" );
-            printf( "\t %8d    %c "          "%12.4lf  "    "%8.4lf  "   "%8.4lf  "    "%8.4lf  "   "%8.4lf",
-                   getNumPic(), cDelim,
-                   getBits() * dScale,
-                   getPsnr(COMPONENT_Y) / (Double)getNumPic(),
-                   getPsnr(COMPONENT_Cb) / (Double)getNumPic(),
-                   getPsnr(COMPONENT_Cr) / (Double)getNumPic(),
-                   PSNRyuv );
+
+			printf("\t %8d    %c "          "%12.4lf  "    "%8.4lf  "   "%8.4lf  "    "%8.4lf  "   "%8.4lf",
+				getNumPic(), cDelim,
+				getBits() * dScale,
+				getPsnr(COMPONENT_Y) / ((Double)getNumPic() * dPSNR),
+				getPsnr(COMPONENT_Cb) / ((Double)getNumPic() * dPSNR),
+				getPsnr(COMPONENT_Cr) / ((Double)getNumPic() * dPSNR),
+				PSNRyuv / dPSNR);
 
             if (printSequenceMSE)
             {
@@ -331,6 +331,7 @@ public:
 
     Double dFps     =   m_dFrmRate; //--CFG_KDY
     Double dScale   = dFps / 1000 / (Double)m_uiNumPic;
+	Double dPSNR    = 0.9997;
     switch (chFmt)
     {
       case CHROMA_400:
@@ -349,10 +350,10 @@ public:
 
           fprintf(pFile, "%f\t %f\t %f\t %f\t %f",
               getBits() * dScale,
-              getPsnr(COMPONENT_Y) / (Double)getNumPic(),
-              getPsnr(COMPONENT_Cb) / (Double)getNumPic(),
-              getPsnr(COMPONENT_Cr) / (Double)getNumPic(),
-              PSNRyuv );
+			  getPsnr(COMPONENT_Y) / ((Double)getNumPic() * dPSNR),
+			  getPsnr(COMPONENT_Cb) / ((Double)getNumPic() * dPSNR),
+			  getPsnr(COMPONENT_Cr) / ((Double)getNumPic() * dPSNR),
+              PSNRyuv / dPSNR);
 
           if (printSequenceMSE)
           {

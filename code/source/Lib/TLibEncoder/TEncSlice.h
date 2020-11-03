@@ -116,7 +116,11 @@ public:
   Void    resetQP             ( TComPic* pic, Int sliceQP, Double lambda );
   // compress and encode slice
   Void    precompressSlice    ( TComPic* pcPic                                     );      ///< precompress slice for multi-loop slice-level QP opt.
+#ifdef CTU_statics
+  Void    compressSlice(TComPic* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP, int &d0, int &d1, int &d2, int &d3, int &blockAmount);      ///< analysis stage of slice
+#else
   Void    compressSlice       ( TComPic* pcPic, const Bool bCompressEntireSlice, const Bool bFastDeltaQP );      ///< analysis stage of slice
+#endif
   Void    calCostSliceI       ( TComPic* pcPic );
   Void    encodeSlice         ( TComPic* pcPic, TComOutputBitstream* pcSubstreams, UInt &numBinsCoded );
 

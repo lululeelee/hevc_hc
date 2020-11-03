@@ -511,7 +511,7 @@ Void TEncSbac::codePartSize( TComDataCU* pcCU, UInt uiAbsPartIdx, UInt uiDepth )
     }
     default:
     {
-      assert(0);
+	  assert(eSize);
       break;
     }
   }

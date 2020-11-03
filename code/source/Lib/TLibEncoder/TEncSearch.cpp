@@ -568,7 +568,7 @@ __inline Void TEncSearch::xTZ8PointSquareSearch( const TComPattern* const pcPatt
   const Int iLeft       = iStartX - iDist;
   const Int iRight      = iStartX + iDist;
   rcStruct.uiBestRound += 1;
-
+  
   if ( iTop >= iSrchRngVerTop ) // check top
   {
     if ( iLeft >= iSrchRngHorLeft ) // check top left
@@ -3763,12 +3763,80 @@ Void TEncSearch::xSetSearchRange ( const TComDataCU* const pcCU, const TComMv& c
   Int  iMvShift = 2;
   TComMv cTmpMvPred = cMvPred;
   pcCU->clipMv( cTmpMvPred );
+  /*
+  int direction = pcCU->PredQuadrant;
 
-  rcMvSrchRngLT.setHor( cTmpMvPred.getHor() - (iSrchRng << iMvShift) );
-  rcMvSrchRngLT.setVer( cTmpMvPred.getVer() - (iSrchRng << iMvShift) );
-
-  rcMvSrchRngRB.setHor( cTmpMvPred.getHor() + (iSrchRng << iMvShift) );
-  rcMvSrchRngRB.setVer( cTmpMvPred.getVer() + (iSrchRng << iMvShift) );
+  switch (direction)
+  {
+	case 0: // left above
+	  rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+	  rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+	  rcMvSrchRngRB.setHor(cTmpMvPred.getHor());
+	  rcMvSrchRngRB.setVer(cTmpMvPred.getVer());
+	  break;
+	case 1: // above
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer());
+		break;
+	case 2: // right above
+	  rcMvSrchRngLT.setHor(cTmpMvPred.getHor());
+	  rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+	  rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+	  rcMvSrchRngRB.setVer(cTmpMvPred.getVer());
+	  break;
+	case 3: // left
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor());
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 4: // center
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 5: // right
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor());
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 6: // left bottom
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer());
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor());
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 7: // bottom
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer());
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 8: // right bottom
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor());
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer());
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	case 9: // Not in the range
+		rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+		rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+		rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
+		break;
+	default:
+		assert("Direction Fault");
+		break;
+  }
+  */
+  rcMvSrchRngLT.setHor(cTmpMvPred.getHor() - (iSrchRng << iMvShift));
+  rcMvSrchRngLT.setVer(cTmpMvPred.getVer() - (iSrchRng << iMvShift));
+  rcMvSrchRngRB.setHor(cTmpMvPred.getHor() + (iSrchRng << iMvShift));
+  rcMvSrchRngRB.setVer(cTmpMvPred.getVer() + (iSrchRng << iMvShift));
   pcCU->clipMv        ( rcMvSrchRngLT );
   pcCU->clipMv        ( rcMvSrchRngRB );
 
@@ -3964,6 +4032,7 @@ Void TEncSearch::xTZSearch( const TComDataCU* const pcCU,
     }
   }
 
+  // set search range
   Int   iSrchRngHorLeft   = pcMvSrchRngLT->getHor();
   Int   iSrchRngHorRight  = pcMvSrchRngRB->getHor();
   Int   iSrchRngVerTop    = pcMvSrchRngLT->getVer();
@@ -4113,7 +4182,6 @@ Void TEncSearch::xTZSearch( const TComDataCU* const pcCU,
   }
 
   // raster refinement
-
   if ( bRasterRefinementEnable && cStruct.uiBestDistance > 0 )
   {
     while ( cStruct.uiBestDistance > 0 )
